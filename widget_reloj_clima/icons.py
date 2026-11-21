@@ -84,6 +84,15 @@ def draw_tab_icon(canvas: tk.Canvas, kind: str, color: str, width: int, height: 
         for dx in (-0.45, 0.45):
             canvas.create_line(cx + dx * r, y1 - r * 0.25, cx + dx * r, y1 + r * 0.15,
                                fill=color, width=line, capstyle=tk.ROUND)
+    elif kind == "reminders":  # campana
+        top, bottom = cy - r * 0.95, cy + r * 0.55
+        canvas.create_arc(cx - r * 0.75, top, cx + r * 0.75, top + r * 1.5, start=0, extent=180,
+                          style=tk.ARC, outline=color, width=line)
+        canvas.create_line(cx - r * 0.75, top + r * 0.75, cx - r * 0.85, bottom, fill=color, width=line)
+        canvas.create_line(cx + r * 0.75, top + r * 0.75, cx + r * 0.85, bottom, fill=color, width=line)
+        canvas.create_line(cx - r * 1.05, bottom, cx + r * 1.05, bottom, fill=color, width=line,
+                           capstyle=tk.ROUND)
+        _circle(canvas, cx, bottom + r * 0.35, max(1.5, r / 5), color)
     else:  # "weather": sol detrás de una nube, en línea
         sx, sy, sr = cx + r * 0.35, cy - r * 0.35, r * 0.5
         canvas.create_oval(sx - sr, sy - sr, sx + sr, sy + sr, outline=color, width=line)

@@ -42,6 +42,18 @@ def short_weekday(day: date, today: date) -> str:
     return WEEKDAYS[day.weekday()][:3].capitalize()
 
 
+def format_due(due: datetime, now: datetime) -> str:
+    """Fecha corta y legible para un recordatorio: 'hoy 22:00', 'mañana 09:30', 'vie 28/11 18:00'."""
+    delta = (due.date() - now.date()).days
+    if delta == 0:
+        return f"hoy {due:%H:%M}"
+    if delta == 1:
+        return f"mañana {due:%H:%M}"
+    if delta == -1:
+        return f"ayer {due:%H:%M}"
+    return f"{WEEKDAYS[due.weekday()][:3]} {due:%d/%m %H:%M}"
+
+
 def month_grid(year: int, month: int) -> tuple[tuple[int, ...], ...]:
     """Semanas del mes empezando en lunes; 0 indica una celda vacía."""
     return tuple(tuple(week) for week in _CALENDAR.monthdayscalendar(year, month))

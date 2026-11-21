@@ -8,6 +8,10 @@ import pytest
 from widget_reloj_clima import app as app_module
 from widget_reloj_clima.config import DEFAULT_SETTINGS, load_settings
 from widget_reloj_clima.icons import draw_icon, draw_tab_icon
+from widget_reloj_clima.reminder_service import ReminderService
+
+from .conftest import create_tk
+from widget_reloj_clima.reminders import ReminderStore
 from widget_reloj_clima.views import TabButton
 from widget_reloj_clima.weather import (
     CurrentWeather,
@@ -25,13 +29,16 @@ FORECAST = Forecast(
 )
 
 
+def make_service(tmp_path):
+    return ReminderService(ReminderStore(tmp_path / "reminders.json"), None, on_linked=lambda chat: None,
+                           token_loader=lambda: None)
+
+
 @pytest.fixture
 def widget(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "fetch_forecast", lambda lat, lon, tz: FORECAST)
-    try:
-        instance = app_module.WidgetApp(DEFAULT_SETTINGS, tmp_path / "config.json")
-    except tk.TclError as exc:  # pragma: no cover - entorno sin pantalla
-        pytest.skip(f"Tk no disponible: {exc}")
+    instance = create_tk(
+        lambda: app_module.WidgetApp(DEFAULT_SETTINGS, tmp_path / "config.json", make_service(tmp_path)))
     instance.withdraw()
     yield instance
     instance.destroy()
@@ -48,10 +55,7 @@ def wait_for(widget, condition, timeout_s=3.0):
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # pragma: no cover
-        pytest.skip(f"Tk no disponible: {exc}")
+    root = create_tk(tk.Tk)
     root.withdraw()
     yield root
     root.destroy()
@@ -201,7 +205,7 @@ def test_every_area_except_buttons_is_draggable(widget):
 
     def inside_button(w):
         while w is not None:
-            if isinstance(w, (ctk.CTkButton, TabButton)):
+            if isinstance(w, (ctk.CTkButton, ctk.CTkEntry, TabButton)):
                 return True
             w = w.master
         return False
@@ -236,7 +240,7 @@ def test_corner_menu_has_four_entries(widget):
     assert labels == ["Mover a la esquina"]
 
 
-@pytest.mark.parametrize("kind", ["clock", "calendar", "weather"])
+@pytest.mark.parametrize("kind", ["clock", "calendar", "weather", "reminders"])
 def test_draw_tab_icon_produces_shapes(tk_root, kind):
     canvas = tk.Canvas(tk_root, width=40, height=28)
     draw_tab_icon(canvas, kind, "#ffffff", 40, 28)
@@ -283,7 +287,7 @@ def test_tab_hover_redraws(widget):
 def test_views_share_the_same_width(widget):
     widget.deiconify()
     widths = set()
-    for view in ("clock", "calendar", "weather"):
+    for view in ("clock", "calendar", "weather", "reminders"):
         widget.show_view(view)
         widget.update()
         widths.add(widget.winfo_width())

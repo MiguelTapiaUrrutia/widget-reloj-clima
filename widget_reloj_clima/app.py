@@ -16,6 +16,10 @@ import customtkinter as ctk
 
 from . import placement, theme
 from .config import Settings, app_dir, load_settings, save_settings
+from .reminder_service import ReminderService
+from .reminders import ReminderStore
+from .reminders_controller import RemindersController
+from .reminders_view import RemindersView
 from .views import CalendarView, ClockView, TabButton, WeatherView
 from .weather import Place, WeatherError, fetch_forecast, search_places, validate_query
 
@@ -26,19 +30,25 @@ MIN_VISIBLE_PX = 60
 CHOOSER_SETTLE_MS = 50
 CTK_SCALING_SETTLE_MS = 1200  # CustomTkinter reajusta min/max 1000 ms después de un cambio de escala
 MAX_WINDOW_PX = 10_000
-VIEWS = {"clock": "Reloj", "calendar": "Mes", "weather": "Clima"}
+VIEWS = {"clock": "Reloj", "calendar": "Mes", "weather": "Clima", "reminders": "Avisos"}
 DEFAULT_VIEW = "clock"
-NOT_DRAGGABLE: tuple[type, ...] = (ctk.CTkButton, tk.Menu, TabButton)
+NOT_DRAGGABLE: tuple[type, ...] = (ctk.CTkButton, ctk.CTkEntry, tk.Menu, TabButton)
 
 log = logging.getLogger(__name__)
 
 
 class WidgetApp(ctk.CTk):
-    def __init__(self, settings: Settings, settings_path: Path | None = None) -> None:
+    def __init__(self, settings: Settings, settings_path: Path | None = None,
+                 service: ReminderService | None = None) -> None:
         super().__init__(fg_color=theme.TRANSPARENT_KEY)
         self._settings = settings
         self._settings_path = settings_path
         self._results: queue.Queue[tuple[str, int, bool, Any]] = queue.Queue()
+        self._ui_calls: queue.Queue[Callable[[], None]] = queue.Queue()  # trabajo pedido desde otros hilos
+        self._service = service or ReminderService(
+            ReminderStore(), settings.telegram_chat_id,
+            on_linked=lambda chat: self._ui_calls.put(lambda: self._update_settings(telegram_chat_id=chat)),
+        )
         self._generations: dict[str, int] = {}
         self._refresh_job: str | None = None
         self._last_forecast = None
@@ -67,6 +77,7 @@ class WidgetApp(ctk.CTk):
         self._place_window()
 
         self.protocol("WM_DELETE_WINDOW", self.close)
+        self._service.start_telegram()
         self._tick()
         self.refresh_weather()
         self.after(POLL_MS, self._poll_results)
@@ -85,8 +96,12 @@ class WidgetApp(ctk.CTk):
         self.clock = ClockView(inner)
         self.calendar = CalendarView(inner)
         self.weather = WeatherView(inner)
+        self.reminders_view = RemindersView(inner, on_add=lambda text: self.reminders.add(text),
+                                            on_delete=lambda rid: self.reminders.delete(rid))
+        self.reminders = RemindersController(self, self.reminders_view, self._service)
         self._panels: dict[str, ctk.CTkFrame] = {
             "clock": self.clock, "calendar": self.calendar, "weather": self.weather,
+            "reminders": self.reminders_view,
         }
         self._view = ""
         self.show_view(DEFAULT_VIEW)
@@ -103,7 +118,7 @@ class WidgetApp(ctk.CTk):
         return header
 
     def show_view(self, view: str) -> None:
-        """Muestra solo la vista indicada ('clock', 'calendar' o 'weather') y ajusta el alto."""
+        """Muestra solo la vista indicada (ver VIEWS) y ajusta el alto de la ventana."""
         if view not in self._panels:
             raise ValueError(f"Vista desconocida: {view}")
         if view == self._view:
@@ -122,6 +137,9 @@ class WidgetApp(ctk.CTk):
             tab.set_active(name == view)
         if view == "calendar":
             self.calendar.go_to_today()
+        if view == "reminders" and was_mapped:
+            # una ventana sin bordes no recibe el foco sola: se fuerza para poder escribir
+            self.after_idle(self.reminders_view.entry.focus_force)
         self._view = view
         self._fit_to_content()
         if was_mapped:
@@ -170,6 +188,9 @@ class WidgetApp(ctk.CTk):
         for key, label in placement.CORNERS.items():
             corners.add_command(label=label, command=lambda k=key: self.move_to_corner(k))
         menu.add_cascade(label="Mover a la esquina", menu=corners)
+        menu.add_separator()
+        menu.add_command(label="Configurar Telegram…", command=lambda: self.reminders.open_telegram_setup())
+        menu.add_command(label="Desvincular Telegram", command=lambda: self.reminders.unlink_telegram())
         menu.add_separator()
         menu.add_command(label="Cerrar", command=self.close)
         return menu
@@ -288,6 +309,10 @@ class WidgetApp(ctk.CTk):
         if now.date() != self._current_day:
             self._current_day = now.date()
             self.calendar.set_today(self._current_day)
+        try:
+            self.reminders.tick(now)
+        except Exception:  # noqa: BLE001 - un fallo en los avisos no debe parar el reloj
+            log.exception("Error al revisar los recordatorios")
         self.after(1000 - now.microsecond // 1000, self._tick)
 
     # ---------- clima ----------
@@ -313,6 +338,11 @@ class WidgetApp(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _poll_results(self) -> None:
+        while not self._ui_calls.empty():
+            try:
+                self._ui_calls.get_nowait()()
+            except Exception:  # noqa: BLE001
+                log.exception("Error en una tarea pedida desde otro hilo")
         try:
             while True:
                 kind, generation, ok, payload = self._results.get_nowait()
@@ -358,6 +388,7 @@ class WidgetApp(ctk.CTk):
 
     def close(self) -> None:
         self._update_settings(x=self.winfo_x(), y=self.winfo_y())
+        self._service.stop()
         self.destroy()
 
 

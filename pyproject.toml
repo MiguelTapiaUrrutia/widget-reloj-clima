@@ -5,7 +5,7 @@ description = "Gadget de escritorio con reloj, calendario y clima (Open-Meteo)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-dependencies = ["customtkinter>=5.2,<7"]
+dependencies = ["customtkinter>=5.2,<7", "keyring>=24"]
 
 [project.gui-scripts]
 widget-reloj-clima = "widget_reloj_clima.app:main"

@@ -27,6 +27,7 @@ class Settings:
     y: int | None = None
     refresh_minutes: int = 20
     always_on_top: bool = True
+    telegram_chat_id: int | None = None
 
 
 DEFAULT_SETTINGS = Settings()
@@ -67,8 +68,10 @@ def _validated(raw: dict[str, Any]) -> Settings:
     refresh = max(MIN_REFRESH_MINUTES, min(MAX_REFRESH_MINUTES, refresh))
 
     on_top = merged["always_on_top"] if isinstance(merged["always_on_top"], bool) else True
+    chat = merged["telegram_chat_id"]
+    chat = chat if isinstance(chat, int) and not isinstance(chat, bool) else None
 
-    return Settings(city, lat, lon, tz, x, y, refresh, on_top)
+    return Settings(city, lat, lon, tz, x, y, refresh, on_top, chat)
 
 
 def load_settings(path: Path | None = None) -> Settings:

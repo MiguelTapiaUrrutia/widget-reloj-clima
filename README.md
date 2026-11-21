@@ -1,11 +1,14 @@
 # Widget Reloj · Clima
 
-Gadget de escritorio para Windows hecho en Python: **reloj**, **calendario** y **clima en tiempo real**, en una ventana sin bordes que queda siempre visible sobre las demás.
+Gadget de escritorio para Windows hecho en Python: **reloj**, **calendario** y **clima en tiempo real**, en una ventana compacta sin bordes que queda siempre visible sobre las demás.
 
-![Captura del widget](docs/captura.png)
+| Reloj (vista inicial) | Mes | Clima |
+|---|---|---|
+| ![Vista reloj](docs/vista_reloj.png) | ![Vista mes](docs/vista_mes.png) | ![Vista clima](docs/vista_clima.png) |
 
 ## Características
 
+- 🧭 **Tres vistas en una ventana pequeña**: los iconos de arriba cambian entre reloj, mes y clima. La ventana se adapta al alto de cada vista y, si está pegada abajo, crece hacia arriba para no salirse de la pantalla.
 - 🕒 **Reloj** grande con segundos y la fecha completa en español.
 - 📅 **Calendario** del mes (semana de lunes a domingo) con el día de hoy resaltado. Usa `‹` `›` para cambiar de mes y haz clic en el título para volver a hoy.
 - 🌤️ **Clima actual**: temperatura, sensación térmica, humedad, viento y un icono según el estado del cielo (de día o de noche).
@@ -48,7 +51,8 @@ Para abrirlo con doble clic, puedes crear un acceso directo con este destino:
 
 | Acción | Cómo |
 |---|---|
-| Mover el widget a cualquier lugar | Arrastrarlo desde cualquier parte, excepto los botones |
+| Cambiar de vista | Iconos de arriba a la izquierda: reloj, mes y clima |
+| Mover el widget a cualquier lugar | Arrastrarlo desde cualquier parte, excepto los iconos y botones |
 | Colocarlo en una esquina | **Clic derecho → Mover a la esquina**. Elige una de las 4; respeta la barra de tareas |
 | Actualizar el clima | Botón `⟳` |
 | Cerrar | Botón `✕` |
@@ -73,7 +77,7 @@ En esa misma carpeta se escribe un registro de errores, `widget.log`. Si borras 
 ```
 widget_reloj_clima/
 ├── app.py       # Ventana principal: gadget sin bordes, arrastre, menú y actualización
-├── views.py     # Secciones visuales: reloj, calendario y clima
+├── views.py     # Vistas (reloj, calendario, clima) y botones de la barra de iconos
 ├── icons.py     # Iconos del clima dibujados con formas (sin imágenes externas)
 ├── placement.py # Posición en pantalla: esquinas, área de trabajo y varios monitores
 ├── weather.py   # Cliente de Open-Meteo: pronóstico y búsqueda de ciudades

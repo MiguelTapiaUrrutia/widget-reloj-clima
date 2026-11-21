@@ -16,7 +16,7 @@ import customtkinter as ctk
 
 from . import placement, theme
 from .config import Settings, app_dir, load_settings, save_settings
-from .views import CalendarView, ClockView, WeatherView
+from .views import CalendarView, ClockView, TabButton, WeatherView
 from .weather import Place, WeatherError, fetch_forecast, search_places, validate_query
 
 POLL_MS = 200
@@ -24,6 +24,11 @@ RETRY_MINUTES = 2
 SCREEN_MARGIN = 24
 MIN_VISIBLE_PX = 60
 CHOOSER_SETTLE_MS = 50
+CTK_SCALING_SETTLE_MS = 1200  # CustomTkinter reajusta min/max 1000 ms después de un cambio de escala
+MAX_WINDOW_PX = 10_000
+VIEWS = {"clock": "Reloj", "calendar": "Mes", "weather": "Clima"}
+DEFAULT_VIEW = "clock"
+NOT_DRAGGABLE: tuple[type, ...] = (ctk.CTkButton, tk.Menu, TabButton)
 
 log = logging.getLogger(__name__)
 
@@ -55,10 +60,10 @@ class WidgetApp(ctk.CTk):
         # Todo el widget (salvo los botones) sirve para arrastrar y abre el menú con clic derecho.
         # No se enlaza la ventana raíz: su etiqueta está en todos los widgets y el evento se repetiría.
         for child in tk.Misc.winfo_children(self):
-            self._bind_tree(child, "<ButtonPress-1>", self._start_drag)
-            self._bind_tree(child, "<B1-Motion>", self._drag)
-            self._bind_tree(child, "<ButtonRelease-1>", self._end_drag)
-            self._bind_tree(child, "<Button-3>", self._show_menu)
+            self._bind_tree(child, "<ButtonPress-1>", self._start_drag, NOT_DRAGGABLE)
+            self._bind_tree(child, "<B1-Motion>", self._drag, NOT_DRAGGABLE)
+            self._bind_tree(child, "<ButtonRelease-1>", self._end_drag, NOT_DRAGGABLE)
+            self._bind_tree(child, "<Button-3>", self._show_menu, (tk.Menu,))
         self._place_window()
 
         self.protocol("WM_DELETE_WINDOW", self.close)
@@ -69,31 +74,90 @@ class WidgetApp(ctk.CTk):
     # ---------- construcción ----------
     def _build(self) -> None:
         card = ctk.CTkFrame(self, fg_color=theme.BG, corner_radius=20, border_width=1,
-                            border_color=theme.BORDER, width=theme.WIDTH)
+                            border_color=theme.BORDER)
         card.pack()
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(padx=theme.PAD, pady=(10, theme.PAD))
+        # Separador invisible que fija el mismo ancho en todas las vistas (CTk lo escala según el DPI).
+        ctk.CTkFrame(inner, width=theme.CONTENT_WIDTH, height=1, fg_color="transparent").grid(row=2, column=0)
 
-        self._build_header(inner)
+        self._build_header(inner).grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.clock = ClockView(inner)
-        self.clock.pack(fill="x")
         self.calendar = CalendarView(inner)
-        self.calendar.pack(fill="x", pady=(8, 10))
         self.weather = WeatherView(inner)
-        self.weather.pack(fill="x")
+        self._panels: dict[str, ctk.CTkFrame] = {
+            "clock": self.clock, "calendar": self.calendar, "weather": self.weather,
+        }
+        self._view = ""
+        self.show_view(DEFAULT_VIEW)
 
     def _build_header(self, parent: tk.Misc) -> ctk.CTkFrame:
         header = ctk.CTkFrame(parent, fg_color="transparent")
-        header.pack(fill="x")
-        ctk.CTkLabel(header, text="●", text_color=theme.ACCENT,
-                     font=ctk.CTkFont(theme.FONT_UI, 10)).pack(side="left")
-        ctk.CTkLabel(header, text="  RELOJ · CLIMA", text_color=theme.DIM,
-                     font=ctk.CTkFont(theme.FONT_UI, 10, "bold")).pack(side="left")
-        btn = {"width": 26, "height": 24, "fg_color": "transparent", "hover_color": theme.ACCENT_HOVER,
+        self._tabs = {kind: TabButton(header, kind, label, self.show_view) for kind, label in VIEWS.items()}
+        for tab in self._tabs.values():
+            tab.pack(side="left", padx=(0, 2))
+        btn = {"width": 26, "height": 26, "fg_color": "transparent", "hover_color": theme.ACCENT_HOVER,
                "text_color": theme.MUTED, "font": ctk.CTkFont(theme.FONT_UI, 13)}
         ctk.CTkButton(header, text="✕", command=self.close, **btn).pack(side="right")
         ctk.CTkButton(header, text="⟳", command=self.refresh_weather, **btn).pack(side="right")
         return header
+
+    def show_view(self, view: str) -> None:
+        """Muestra solo la vista indicada ('clock', 'calendar' o 'weather') y ajusta el alto."""
+        if view not in self._panels:
+            raise ValueError(f"Vista desconocida: {view}")
+        if view == self._view:
+            return
+        was_mapped = bool(self.winfo_ismapped())
+        old_y, old_height = self.winfo_y(), self.winfo_height()
+        # Se oculta con grid_forget (no grid_remove): CustomTkinter repite la última llamada a
+        # grid() de cada widget al cambiar de escala, y solo grid_forget borra ese registro.
+        # Con grid_remove, al pasar a otro monitor reaparecían los paneles ocultos, encimados.
+        for name, panel in self._panels.items():
+            if name == view:
+                panel.grid(row=1, column=0, sticky="ew")
+            else:
+                panel.grid_forget()
+        for name, tab in self._tabs.items():
+            tab.set_active(name == view)
+        if view == "calendar":
+            self.calendar.go_to_today()
+        self._view = view
+        self._fit_to_content()
+        if was_mapped:
+            self._keep_on_screen(old_y, old_height)
+
+    def _fit_to_content(self) -> None:
+        """Quita cualquier tamaño fijo para que la ventana tome el tamaño de la vista visible."""
+        x, y = self.winfo_x(), self.winfo_y()
+        tk.Tk.wm_minsize(self, 1, 1)
+        tk.Tk.wm_maxsize(self, MAX_WINDOW_PX, MAX_WINDOW_PX)
+        tk.Tk.wm_geometry(self, "")  # vuelve al tamaño natural (el que pide el contenido)
+        if self.winfo_ismapped():
+            self._move_to(x, y)
+
+    def _set_scaling(self, new_widget_scaling: float, new_window_scaling: float) -> None:
+        """CustomTkinter llama a esto al pasar a un monitor con otra escala (DPI).
+
+        Su implementación fija el tamaño de la ventana al de la vista que se veía en ese
+        momento; luego, al cambiar a una vista más alta, el contenido quedaba recortado.
+        Se deja que CTk reescale y después se libera el tamaño. CTk vuelve a fijar
+        mínimo y máximo a los 1000 ms, por eso se repite pasado ese plazo.
+        """
+        super()._set_scaling(new_widget_scaling, new_window_scaling)
+        self.after_idle(self._fit_to_content)
+        self.after(CTK_SCALING_SETTLE_MS, self._fit_to_content)
+
+    def _keep_on_screen(self, old_y: int, old_height: int) -> None:
+        self.update_idletasks()
+        new_height = self.winfo_reqheight()
+        center_x = self.winfo_x() + self.winfo_width() // 2
+        area = placement.monitor_work_area(center_x, old_y + min(old_height, new_height) // 2,
+                                           self._primary_screen())
+        new_y = placement.fit_vertically(old_y, old_height, new_height, area, SCREEN_MARGIN)
+        if new_y != old_y:
+            self._move_to(self.winfo_x(), new_y)
+            self._update_settings(x=self.winfo_x(), y=new_y)
 
     def _build_menu(self) -> tk.Menu:
         menu = tk.Menu(self, tearoff=0, bg=theme.CARD, fg=theme.TEXT, activebackground=theme.ACCENT_HOVER,
@@ -110,14 +174,15 @@ class WidgetApp(ctk.CTk):
         menu.add_command(label="Cerrar", command=self.close)
         return menu
 
-    def _bind_tree(self, widget: tk.Misc, sequence: str, handler: Callable[[tk.Event], Any]) -> None:
-        """Enlaza un evento a un widget y todos sus descendientes, excepto botones."""
-        if isinstance(widget, (ctk.CTkButton, tk.Menu)):
+    def _bind_tree(self, widget: tk.Misc, sequence: str, handler: Callable[[tk.Event], Any],
+                   skip: tuple[type, ...]) -> None:
+        """Enlaza un evento a un widget y todos sus descendientes, salvo los de tipo `skip`."""
+        if isinstance(widget, skip):
             return
         tk.Misc.bind(widget, sequence, handler, add="+")
         # tk.Misc.winfo_children incluye el lienzo de fondo que CTkFrame oculta en su versión.
         for child in tk.Misc.winfo_children(widget):
-            self._bind_tree(child, sequence, handler)
+            self._bind_tree(child, sequence, handler, skip)
 
     # ---------- posición y arrastre ----------
     def _primary_screen(self) -> placement.Rect:

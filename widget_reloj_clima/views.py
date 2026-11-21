@@ -4,36 +4,83 @@ from __future__ import annotations
 
 import tkinter as tk
 from datetime import date, datetime
+from typing import Callable
 
 import customtkinter as ctk
 
 from . import dates, theme
-from .icons import draw_icon
+from .icons import draw_icon, draw_tab_icon
 from .weather import Forecast, describe
 
 GRID_ROWS = 6
 GRID_COLS = 7
 WEEKEND_COLS = (5, 6)
-MAIN_ICON_SIZE = 64
-SMALL_ICON_SIZE = 30
+MAIN_ICON_SIZE = 56
+SMALL_ICON_SIZE = 28
+CELL_WIDTH = 28
+CELL_RADIUS = 6  # CTkLabel añade este radio como relleno horizontal: más grande = celdas más anchas
+TAB_WIDTH = 40
+TAB_HEIGHT = 28
 
 
 def _font(size: int, weight: str = "normal", family: str = theme.FONT_UI) -> ctk.CTkFont:
     return ctk.CTkFont(family=family, size=size, weight=weight)
 
 
+class TabButton(tk.Canvas):
+    """Icono de la barra superior que cambia la vista del widget."""
+
+    def __init__(self, master: tk.Misc, kind: str, tooltip: str, command: Callable[[str], None]) -> None:
+        super().__init__(master, width=TAB_WIDTH, height=TAB_HEIGHT, bg=theme.BG,
+                         highlightthickness=0, cursor="hand2")
+        self.kind = kind
+        self.tooltip = tooltip
+        self._active = False
+        self._hover = False
+        self.bind("<ButtonPress-1>", lambda _e: command(kind))
+        self.bind("<Enter>", lambda _e: self._set_hover(True))
+        self.bind("<Leave>", lambda _e: self._set_hover(False))
+        self._redraw()
+
+    @property
+    def active(self) -> bool:
+        return self._active
+
+    def set_active(self, active: bool) -> None:
+        self._active = active
+        self._redraw()
+
+    def _set_hover(self, hover: bool) -> None:
+        self._hover = hover
+        self._redraw()
+
+    def _redraw(self) -> None:
+        self.delete("all")
+        if self._active or self._hover:
+            fill = theme.ACCENT_HOVER if self._active else theme.CARD
+            _rounded_rect(self, 1, 1, TAB_WIDTH - 1, TAB_HEIGHT - 1, TAB_HEIGHT / 2 - 1, fill)
+        color = theme.ACCENT if self._active else theme.MUTED
+        draw_tab_icon(self, self.kind, color, TAB_WIDTH, TAB_HEIGHT)
+
+
+def _rounded_rect(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float, r: float, fill: str) -> None:
+    canvas.create_oval(x1, y1, x1 + 2 * r, y2, fill=fill, outline="")
+    canvas.create_oval(x2 - 2 * r, y1, x2, y2, fill=fill, outline="")
+    canvas.create_rectangle(x1 + r, y1, x2 - r, y2, fill=fill, outline="")
+
+
 class ClockView(ctk.CTkFrame):
     def __init__(self, master: tk.Misc) -> None:
-        super().__init__(master, fg_color="transparent")
+        super().__init__(master, fg_color=theme.CARD, corner_radius=14)
         row = ctk.CTkFrame(self, fg_color="transparent")
-        row.pack(anchor="w")
+        row.pack(anchor="w", padx=16, pady=(6, 0))
         self._time = ctk.CTkLabel(row, text="--:--", text_color=theme.TEXT,
-                                  font=_font(60, family=theme.FONT_CLOCK))
+                                  font=_font(56, family=theme.FONT_CLOCK))
         self._time.pack(side="left")
-        self._seconds = ctk.CTkLabel(row, text="--", text_color=theme.ACCENT, font=_font(20, "bold"))
-        self._seconds.pack(side="left", anchor="s", padx=(6, 0), pady=(0, 14))
-        self._date = ctk.CTkLabel(self, text="", text_color=theme.MUTED, font=_font(14))
-        self._date.pack(anchor="w", pady=(0, 2))
+        self._seconds = ctk.CTkLabel(row, text="--", text_color=theme.ACCENT, font=_font(18, "bold"))
+        self._seconds.pack(side="left", anchor="s", padx=(6, 0), pady=(0, 13))
+        self._date = ctk.CTkLabel(self, text="", text_color=theme.MUTED, font=_font(13))
+        self._date.pack(anchor="w", padx=16, pady=(0, 14))
 
     def show(self, now: datetime) -> None:
         self._time.configure(text=dates.format_time(now))
@@ -67,10 +114,10 @@ class CalendarView(ctk.CTkFrame):
         grid.pack(padx=10, pady=(0, 10))
         for col, initial in enumerate(dates.WEEKDAY_INITIALS):
             color = theme.DIM if col in WEEKEND_COLS else theme.MUTED
-            ctk.CTkLabel(grid, text=initial, width=36, height=20, text_color=color,
-                         font=_font(11, "bold")).grid(row=0, column=col)
+            ctk.CTkLabel(grid, text=initial, width=CELL_WIDTH, height=20, text_color=color,
+                         font=_font(11, "bold")).grid(row=0, column=col, padx=1)
         self._cells = [
-            [ctk.CTkLabel(grid, text="", width=34, height=24, corner_radius=12, font=_font(12))
+            [ctk.CTkLabel(grid, text="", width=CELL_WIDTH, height=24, corner_radius=CELL_RADIUS, font=_font(12))
              for _ in range(GRID_COLS)]
             for _ in range(GRID_ROWS)
         ]
@@ -113,7 +160,7 @@ class WeatherView(ctk.CTkFrame):
         self._build_current()
         self._build_forecast()
         self._status = ctk.CTkLabel(self, text="", text_color=theme.MUTED, font=_font(11),
-                                    wraplength=theme.WIDTH - 60, justify="left")
+                                    wraplength=theme.CONTENT_WIDTH - 28, justify="left")
         self._status.pack(anchor="w", padx=14, pady=(0, 10))
 
     def _build_current(self) -> None:
@@ -124,11 +171,11 @@ class WeatherView(ctk.CTkFrame):
         self._icon.pack(side="left")
         info = ctk.CTkFrame(top, fg_color="transparent")
         info.pack(side="left", padx=(10, 0), fill="x", expand=True)
-        self._temp = ctk.CTkLabel(info, text="--°", text_color=theme.TEXT, font=_font(34, "bold"))
+        self._temp = ctk.CTkLabel(info, text="--°", text_color=theme.TEXT, font=_font(32, "bold"))
         self._temp.pack(anchor="w")
         self._desc = ctk.CTkLabel(info, text="Cargando clima…", text_color=theme.MUTED, font=_font(13))
         self._desc.pack(anchor="w")
-        self._details = ctk.CTkLabel(self, text="", text_color=theme.MUTED, font=_font(12))
+        self._details = ctk.CTkLabel(self, text="", text_color=theme.MUTED, font=_font(12), justify="left")
         self._details.pack(anchor="w", padx=14)
 
     def _build_forecast(self) -> None:
@@ -156,8 +203,8 @@ class WeatherView(ctk.CTkFrame):
         self._temp.configure(text=f"{cur.temperature:.0f}°")
         self._desc.configure(text=text)
         self._details.configure(
-            text=f"Sensación {cur.apparent_temperature:.0f}°  ·  Humedad {cur.humidity}%"
-                 f"  ·  Viento {cur.wind_speed:.0f} km/h"
+            text=f"Sensación {cur.apparent_temperature:.0f}°  ·  Humedad {cur.humidity}%\n"
+                 f"Viento {cur.wind_speed:.0f} km/h"
         )
         today = updated.date()
         for (name, icon, temps), day in zip(self._days, forecast.daily):

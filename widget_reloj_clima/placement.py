@@ -8,6 +8,8 @@ from typing import NamedTuple
 SPI_GETWORKAREA = 0x0030
 SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN = 76, 77
 SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 78, 79
+MONITOR_DEFAULTTONEAREST = 2
+BOTTOM_SNAP_PX = 8
 
 CORNERS: dict[str, str] = {
     "top_left": "Arriba a la izquierda",
@@ -54,6 +56,45 @@ def work_area(fallback: Rect) -> Rect:
         return fallback
     area = Rect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
     return area if area.width > 0 and area.height > 0 else fallback
+
+
+def monitor_work_area(x: int, y: int, fallback: Rect) -> Rect:
+    """Área útil (sin barra de tareas) del monitor que contiene el punto (x, y), o el más cercano."""
+    if sys.platform != "win32":
+        return fallback
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class MonitorInfo(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.MonitorFromPoint.restype = wintypes.HMONITOR
+        monitor = user32.MonitorFromPoint(wintypes.POINT(x, y), MONITOR_DEFAULTTONEAREST)
+        info = MonitorInfo(cbSize=ctypes.sizeof(MonitorInfo))
+        if not monitor or not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return fallback
+    except (AttributeError, OSError, ctypes.ArgumentError):
+        return fallback
+    work = info.rcWork
+    area = Rect(work.left, work.top, work.right - work.left, work.bottom - work.top)
+    return area if area.width > 0 and area.height > 0 else fallback
+
+
+def fit_vertically(y: int, old_height: int, new_height: int, area: Rect, margin: int) -> int:
+    """Nueva coordenada y tras cambiar el alto de la ventana.
+
+    Si la ventana estaba pegada al borde inferior, mantiene ese borde (crece hacia arriba);
+    en cualquier caso evita que se salga del área por abajo o por arriba.
+    """
+    area_bottom = area.y + area.height
+    if y + old_height >= area_bottom - margin - BOTTOM_SNAP_PX:
+        y = y + old_height - new_height
+    y = min(y, area_bottom - new_height)
+    return max(area.y, y)
 
 
 def corner_position(corner: str, area: Rect, width: int, height: int, margin: int) -> tuple[int, int]:

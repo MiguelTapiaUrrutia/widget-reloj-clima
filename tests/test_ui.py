@@ -7,7 +7,8 @@ import pytest
 
 from widget_reloj_clima import app as app_module
 from widget_reloj_clima.config import DEFAULT_SETTINGS, load_settings
-from widget_reloj_clima.icons import draw_icon
+from widget_reloj_clima.icons import draw_icon, draw_tab_icon
+from widget_reloj_clima.views import TabButton
 from widget_reloj_clima.weather import (
     CurrentWeather,
     DailyForecast,
@@ -200,7 +201,7 @@ def test_every_area_except_buttons_is_draggable(widget):
 
     def inside_button(w):
         while w is not None:
-            if isinstance(w, ctk.CTkButton):
+            if isinstance(w, (ctk.CTkButton, TabButton)):
                 return True
             w = w.master
         return False
@@ -233,6 +234,127 @@ def test_corner_menu_has_four_entries(widget):
     labels = [widget._menu.entrycget(i, "label") for i in range(widget._menu.index("end") + 1)
               if widget._menu.type(i) == "cascade"]
     assert labels == ["Mover a la esquina"]
+
+
+@pytest.mark.parametrize("kind", ["clock", "calendar", "weather"])
+def test_draw_tab_icon_produces_shapes(tk_root, kind):
+    canvas = tk.Canvas(tk_root, width=40, height=28)
+    draw_tab_icon(canvas, kind, "#ffffff", 40, 28)
+    assert canvas.find_all()
+    canvas.destroy()
+
+
+def _visible_panels(widget):
+    return [name for name, panel in widget._panels.items() if panel.winfo_manager() == "grid"]
+
+
+def test_starts_in_clock_view_only(widget):
+    assert _visible_panels(widget) == ["clock"]
+    assert [k for k, t in widget._tabs.items() if t.active] == ["clock"]
+
+
+@pytest.mark.parametrize("view", ["calendar", "weather", "clock"])
+def test_show_view_displays_only_that_panel(widget, view):
+    widget.show_view("weather" if view == "clock" else "clock")
+    widget.show_view(view)
+    assert _visible_panels(widget) == [view]
+    assert [k for k, t in widget._tabs.items() if t.active] == [view]
+
+
+def test_clicking_tab_switches_view(widget):
+    widget.deiconify()
+    widget.update()
+    widget._tabs["calendar"].event_generate("<ButtonPress-1>", x=5, y=5)
+    widget.update()
+    assert _visible_panels(widget) == ["calendar"]
+    widget._tabs["clock"].event_generate("<ButtonPress-1>", x=5, y=5)
+    widget.update()
+    assert _visible_panels(widget) == ["clock"]
+
+
+def test_tab_hover_redraws(widget):
+    tab = widget._tabs["weather"]
+    tab._set_hover(True)
+    hovered = len(tab.find_all())
+    tab._set_hover(False)
+    assert hovered > len(tab.find_all())
+
+
+def test_views_share_the_same_width(widget):
+    widget.deiconify()
+    widths = set()
+    for view in ("clock", "calendar", "weather"):
+        widget.show_view(view)
+        widget.update()
+        widths.add(widget.winfo_width())
+    assert len(widths) == 1
+
+
+def test_calendar_view_returns_to_current_month(widget):
+    widget.calendar._shift(3)
+    widget.show_view("calendar")
+    today = date.today()
+    assert widget.calendar._title.cget("text").endswith(str(today.year))
+    assert (widget.calendar._year, widget.calendar._month) == (today.year, today.month)
+
+
+def test_hidden_panels_are_not_restored_by_ctk_on_rescale(widget):
+    """Regresión: al cambiar de monitor (otra escala), CTk repetía grid() en paneles ocultos."""
+    widget.show_view("weather")
+    for name, panel in widget._panels.items():
+        if name != "weather":
+            assert panel._last_geometry_manager_call is None
+    for panel in widget._panels.values():
+        panel._set_scaling(1.0, 1.0)  # lo que hace CTk con cada widget al cambiar de escala
+    widget.update()
+    assert _visible_panels(widget) == ["weather"]
+
+
+@pytest.mark.parametrize("scaling", [1.0, 1.5])
+def test_window_fits_every_view_after_scale_change(widget, scaling):
+    """Regresión: CTk fijaba el tamaño de la ventana y recortaba las vistas más altas."""
+    widget.deiconify()
+    widget.update()
+    widget._set_scaling(scaling, scaling)
+    widget.update()
+    widget._fit_to_content()  # lo que se ejecuta en after_idle / tras el retardo de CTk
+    for view in ("weather", "calendar", "clock"):
+        widget.show_view(view)
+        widget.update()
+        assert widget.winfo_height() == widget.winfo_reqheight(), view
+        assert widget.winfo_width() == widget.winfo_reqwidth(), view
+
+
+def test_fit_to_content_keeps_position(widget):
+    widget.deiconify()
+    widget._move_to(150, 120)
+    widget.update()
+    before = (widget.winfo_x(), widget.winfo_y())
+    widget._fit_to_content()
+    widget.update()
+    assert (widget.winfo_x(), widget.winfo_y()) == before
+
+
+def test_show_view_rejects_unknown_view(widget):
+    with pytest.raises(ValueError):
+        widget.show_view("radar")
+
+
+def test_growing_view_stays_on_screen(widget, monkeypatch):
+    from widget_reloj_clima import placement
+
+    area = placement.Rect(0, 0, 1600, 1000)
+    widget.deiconify()
+    widget.update()
+    widget._move_to(100, area.height - widget.winfo_height() - 100)  # cerca del borde inferior
+    widget.update()
+    monkeypatch.setattr(placement, "monitor_work_area", lambda x, y, fallback: area)
+    moves = []
+    monkeypatch.setattr(widget, "_move_to", lambda x, y: moves.append((x, y)))
+    widget.show_view("weather")
+    assert moves, "la ventana debería subir para no salirse por abajo"
+    widget.update_idletasks()
+    assert moves[-1][1] + widget.winfo_reqheight() <= area.y + area.height
 
 
 def test_saved_offscreen_position_falls_back_to_default(widget):

@@ -38,6 +38,33 @@ def test_all_corners_have_spanish_labels():
     assert all(label.startswith(("Arriba", "Abajo")) for label in CORNERS.values())
 
 
+@pytest.mark.parametrize(
+    ("y", "old_h", "new_h", "expected"),
+    [
+        (100, 200, 400, 100),    # hay espacio: mantiene el borde superior
+        (816, 200, 400, 616),    # pegado abajo: crece hacia arriba
+        (900, 100, 300, 740),    # se saldría por abajo: sube lo justo
+        (500, 400, 200, 500),    # encoge: no se mueve
+        (836, 180, 300, 716),    # anclado abajo con margen de 24 px
+        (10, 100, 2000, 0),      # más alto que la pantalla: queda arriba del todo
+    ],
+)
+def test_fit_vertically(y, old_h, new_h, expected):
+    assert placement.fit_vertically(y, old_h, new_h, AREA, 24) == expected
+
+
+@pytest.mark.skipif(placement.sys.platform != "win32", reason="solo Windows")
+def test_monitor_work_area_for_point_on_primary_monitor():
+    area = placement.monitor_work_area(10, 10, Rect(0, 0, 1, 1))
+    assert area.width > 1 and area.x <= 10 <= area.x + area.width
+
+
+def test_monitor_work_area_fallback_off_windows(monkeypatch):
+    fallback = Rect(0, 0, 800, 600)
+    monkeypatch.setattr(placement.sys, "platform", "linux")
+    assert placement.monitor_work_area(5, 5, fallback) == fallback
+
+
 def test_is_visible():
     screen = Rect(0, 0, 1920, 1080)
     assert is_visible(100, 100, screen, 60)

@@ -66,6 +66,37 @@ def _flakes(canvas: tk.Canvas, s: float) -> None:
         _circle(canvas, s * x, y, max(1.5, s / 22), SNOW)
 
 
+def draw_tab_icon(canvas: tk.Canvas, kind: str, color: str, width: int, height: int) -> None:
+    """Iconos de línea de la barra de vistas: 'clock', 'calendar' o 'weather'."""
+    cx, cy = width / 2, height / 2
+    r = min(width, height) * 0.3
+    line = max(1.5, r / 5)
+    if kind == "clock":
+        canvas.create_oval(cx - r, cy - r, cx + r, cy + r, outline=color, width=line)
+        canvas.create_line(cx, cy, cx, cy - r * 0.6, fill=color, width=line, capstyle=tk.ROUND)
+        canvas.create_line(cx, cy, cx + r * 0.45, cy + r * 0.2, fill=color, width=line, capstyle=tk.ROUND)
+    elif kind == "calendar":
+        x1, y1, x2, y2 = cx - r * 1.05, cy - r * 0.9, cx + r * 1.05, cy + r
+        canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=line)
+        canvas.create_line(x1, y1 + r * 0.55, x2, y1 + r * 0.55, fill=color, width=line)
+        for dx in (-0.5, 0.0, 0.5):
+            _circle(canvas, cx + dx * r * 1.1, cy + r * 0.45, max(1.2, r / 7), color)
+        for dx in (-0.45, 0.45):
+            canvas.create_line(cx + dx * r, y1 - r * 0.25, cx + dx * r, y1 + r * 0.15,
+                               fill=color, width=line, capstyle=tk.ROUND)
+    else:  # "weather": sol detrás de una nube, en línea
+        sx, sy, sr = cx + r * 0.35, cy - r * 0.35, r * 0.5
+        canvas.create_oval(sx - sr, sy - sr, sx + sr, sy + sr, outline=color, width=line)
+        base = cy + r * 0.75
+        canvas.create_arc(cx - r * 1.1, cy - r * 0.15, cx - r * 0.1, base + r * 0.05,
+                          start=90, extent=180, style=tk.ARC, outline=color, width=line)
+        canvas.create_arc(cx - r * 0.55, cy - r * 0.6, cx + r * 0.6, cy + r * 0.55,
+                          start=0, extent=180, style=tk.ARC, outline=color, width=line)
+        canvas.create_arc(cx + r * 0.15, cy - r * 0.05, cx + r * 1.15, base + r * 0.05,
+                          start=270, extent=180, style=tk.ARC, outline=color, width=line)
+        canvas.create_line(cx - r * 0.6, base, cx + r * 0.65, base, fill=color, width=line, capstyle=tk.ROUND)
+
+
 def draw_icon(canvas: tk.Canvas, kind: str, is_day: bool, size: int, bg: str) -> None:
     """Dibuja el icono `kind` (ver weather.WEATHER_CODES) ocupando un cuadrado de `size`."""
     canvas.delete("all")

@@ -16,5 +16,6 @@ ERROR = "#ff8a7a"
 FONT_UI = "Segoe UI"
 FONT_CLOCK = "Segoe UI Light"
 
-WIDTH = 320
-PAD = 18
+WIDTH = 280
+PAD = 14
+CONTENT_WIDTH = WIDTH - 2 * PAD
